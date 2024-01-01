@@ -174,7 +174,7 @@ public class DlsIntegrationTests {
      */
     static final TestSecurityConfig.Role TEST_ROLE_TWO = new TestSecurityConfig.Role("test_role_2").clusterPermissions(
         "cluster_composite_ops_ro"
-    ).indexPermissions("read").dls("{\"match\":{\"genre\":\"History\"}}").on("my_index*");
+    ).indexPermissions("read").on("my_index*");
 
     /**
      * User with only test role 1 applied.
@@ -570,7 +570,7 @@ public class DlsIntegrationTests {
     }
 
     @Test
-    public void testRoleUnionSearchFiltering() throws Exception {
+    public void testOverlappingRoleUnionSearchFiltering() throws Exception {
         try (RestHighLevelClient restHighLevelClient = cluster.getRestHighLevelClient(TEST_ROLE_ONE_USER)) {
             SearchRequest searchRequest = new SearchRequest(UNION_TEST_INDEX_NAME);
             SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
@@ -586,9 +586,7 @@ public class DlsIntegrationTests {
             SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
 
             assertThat(searchResponse, isSuccessfulSearchResponse());
-            assertThat(searchResponse, numberOfTotalHitsIsEqualTo(5));
-            IntStream.range(0, 5)
-                .forEach((hitIndex) -> { assertThat(searchResponse, searchHitContainsFieldWithValue(hitIndex, "genre", "History")); });
+            assertThat(searchResponse, numberOfTotalHitsIsEqualTo(10));
         }
 
         SearchHits adminHits, unionRoleHits;
