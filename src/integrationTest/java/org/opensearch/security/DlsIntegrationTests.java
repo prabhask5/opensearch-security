@@ -10,10 +10,12 @@
 package org.opensearch.security;
 
 import java.io.IOException;
+import java.io.Serializable;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
 import java.util.function.BiFunction;
+import java.util.stream.IntStream;
 
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakScope;
 import org.junit.BeforeClass;
@@ -27,6 +29,7 @@ import org.opensearch.action.search.SearchResponse;
 import org.opensearch.client.Client;
 import org.opensearch.client.RestHighLevelClient;
 import org.opensearch.index.query.QueryBuilders;
+import org.opensearch.search.SearchHits;
 import org.opensearch.search.aggregations.Aggregation;
 import org.opensearch.search.aggregations.metrics.ParsedAvg;
 import org.opensearch.test.framework.TestSecurityConfig;
@@ -34,6 +37,7 @@ import org.opensearch.test.framework.cluster.ClusterManager;
 import org.opensearch.test.framework.cluster.LocalCluster;
 
 import static org.hamcrest.MatcherAssert.assertThat;
+import static org.hamcrest.Matchers.equalTo;
 import static org.hamcrest.Matchers.instanceOf;
 import static org.hamcrest.Matchers.is;
 import static org.opensearch.action.admin.indices.alias.IndicesAliasesRequest.AliasActions.Type.ADD;
@@ -81,6 +85,7 @@ public class DlsIntegrationTests {
     static final String FIRST_INDEX_ALIAS_FILTERED_BY_TWINS_ARTIST = FIRST_INDEX_NAME.concat("-filtered-by-twins-artist");
     static final String FIRST_INDEX_ALIAS_FILTERED_BY_FIRST_ARTIST = FIRST_INDEX_NAME.concat("-filtered-by-first-artist");
     static final String ALL_INDICES_ALIAS = "_all";
+    static final String UNION_TEST_INDEX_NAME = "my_index1";
 
     static final TestSecurityConfig.User ADMIN_USER = new TestSecurityConfig.User("admin").roles(ALL_ACCESS);
 
@@ -157,6 +162,35 @@ public class DlsIntegrationTests {
                 .on("*")
         );
 
+    /**
+     * Test role for DLS filtering with two overlapping roles where user is only allowed to see documents with sensitive property false. This role is applied at a higher level for all index patterns.
+     */
+    static final TestSecurityConfig.Role TEST_ROLE_ONE = new TestSecurityConfig.Role("test_role_1").clusterPermissions(
+        "cluster_composite_ops_ro"
+    ).indexPermissions("read").dls("{\"match\":{\"sensitive\":false}}").on("*");
+
+    /**
+     * Test role 2 for DLS filtering with two overlapping roles where user is only allowed to see documents with genre property History. This role is applied at a lower level for index patterns my_index*.
+     */
+    static final TestSecurityConfig.Role TEST_ROLE_TWO = new TestSecurityConfig.Role("test_role_2").clusterPermissions(
+        "cluster_composite_ops_ro"
+    ).indexPermissions("read").dls("{\"match\":{\"genre\":\"History\"}}").on("my_index*");
+
+    /**
+     * User with only test role 1 applied.
+     */
+    static final TestSecurityConfig.User TEST_ROLE_ONE_USER = new TestSecurityConfig.User("test_role_1_user").roles(TEST_ROLE_ONE);
+
+    /**
+     * User with only test role 2 applied.
+     */
+    static final TestSecurityConfig.User TEST_ROLE_TWO_USER = new TestSecurityConfig.User("test_role_2_user").roles(TEST_ROLE_TWO);
+
+    /**
+     * User with both test role 1 and test role 2 applied.
+     */
+    static final TestSecurityConfig.User TEST_ROLE_USER = new TestSecurityConfig.User("test_role_user").roles(TEST_ROLE_ONE, TEST_ROLE_TWO);
+
     @ClassRule
     public static final LocalCluster cluster = new LocalCluster.Builder().clusterManager(ClusterManager.THREE_CLUSTER_MANAGERS)
         .anonymousAuth(false)
@@ -171,7 +205,10 @@ public class DlsIntegrationTests {
             READ_WHERE_FIELD_ARTIST_MATCHES_ARTIST_STRING,
             READ_WHERE_STARS_LESS_THAN_THREE,
             READ_WHERE_FIELD_ARTIST_MATCHES_ARTIST_TWINS_OR_FIELD_STARS_GREATER_THAN_FIVE,
-            READ_WHERE_FIELD_ARTIST_MATCHES_ARTIST_TWINS_OR_MATCHES_ARTIST_FIRST
+            READ_WHERE_FIELD_ARTIST_MATCHES_ARTIST_TWINS_OR_MATCHES_ARTIST_FIRST,
+            TEST_ROLE_ONE_USER,
+            TEST_ROLE_TWO_USER,
+            TEST_ROLE_USER
         )
         .build();
 
@@ -214,6 +251,21 @@ public class DlsIntegrationTests {
             put(SECOND_INDEX_ID_SONG_2, SONGS[2]); // (ARTIST_TWINS, TITLE_NEXT_SONG, LYRICS_3, 3, GENRE_JAZZ),
             put(SECOND_INDEX_ID_SONG_3, SONGS[1]); // (ARTIST_STRING, TITLE_SONG_1_PLUS_1, LYRICS_2, 2, GENRE_BLUES),
             put(SECOND_INDEX_ID_SONG_4, SONGS[0]); // (ARTIST_FIRST, TITLE_MAGNUM_OPUS ,LYRICS_1, 1, GENRE_ROCK)
+        }
+    };
+
+    static final TreeMap<String, Map<String, Serializable>> UNION_ROLE_TEST_DATA = new TreeMap<>() {
+        {
+            put("1", Map.of("genre", "History", "date", "01-01-2020", "sensitive", true));
+            put("2", Map.of("genre", "History", "date", "01-01-2020", "sensitive", true));
+            put("3", Map.of("genre", "History", "date", "01-01-2020", "sensitive", true));
+            put("4", Map.of("genre", "History", "date", "01-01-2020", "sensitive", true));
+            put("5", Map.of("genre", "History", "date", "01-01-2020", "sensitive", true));
+            put("6", Map.of("genre", "Math", "date", "01-01-2020", "sensitive", false));
+            put("7", Map.of("genre", "Math", "date", "01-01-2020", "sensitive", false));
+            put("8", Map.of("genre", "Math", "date", "01-01-2020", "sensitive", false));
+            put("9", Map.of("genre", "Math", "date", "01-01-2020", "sensitive", false));
+            put("10", Map.of("genre", "Math", "date", "01-01-2020", "sensitive", false));
         }
     };
 
@@ -274,6 +326,9 @@ public class DlsIntegrationTests {
                     )
                 )
                 .actionGet();
+            UNION_ROLE_TEST_DATA.forEach((index, document) -> {
+                client.prepareIndex(UNION_TEST_INDEX_NAME).setId(index).setRefreshPolicy(IMMEDIATE).setSource(document).get();
+            });
         }
     }
 
@@ -512,5 +567,64 @@ public class DlsIntegrationTests {
             assertThat(actualAggregation, instanceOf(ParsedAvg.class));
             assertThat(((ParsedAvg) actualAggregation).getValue(), is(1.5));
         }
+    }
+
+    @Test
+    public void testRoleUnionSearchFiltering() throws Exception {
+        try (RestHighLevelClient restHighLevelClient = cluster.getRestHighLevelClient(TEST_ROLE_ONE_USER)) {
+            SearchRequest searchRequest = new SearchRequest(UNION_TEST_INDEX_NAME);
+            SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
+
+            assertThat(searchResponse, isSuccessfulSearchResponse());
+            assertThat(searchResponse, numberOfTotalHitsIsEqualTo(5));
+            IntStream.range(0, 5)
+                .forEach((hitIndex) -> { assertThat(searchResponse, searchHitContainsFieldWithValue(hitIndex, "sensitive", false)); });
+        }
+
+        try (RestHighLevelClient restHighLevelClient = cluster.getRestHighLevelClient(TEST_ROLE_TWO_USER)) {
+            SearchRequest searchRequest = new SearchRequest(UNION_TEST_INDEX_NAME);
+            SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
+
+            assertThat(searchResponse, isSuccessfulSearchResponse());
+            assertThat(searchResponse, numberOfTotalHitsIsEqualTo(5));
+            IntStream.range(0, 5)
+                .forEach((hitIndex) -> { assertThat(searchResponse, searchHitContainsFieldWithValue(hitIndex, "genre", "History")); });
+        }
+
+        SearchHits adminHits, unionRoleHits;
+
+        try (RestHighLevelClient restHighLevelClient = cluster.getRestHighLevelClient(ADMIN_USER)) {
+            SearchRequest searchRequest = new SearchRequest(UNION_TEST_INDEX_NAME);
+            SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
+
+            assertThat(searchResponse, isSuccessfulSearchResponse());
+            adminHits = searchResponse.getHits();
+        }
+
+        // now test with user with both roles to make sure the roles add to each other and the hits equal the same hits for an admin user
+        try (RestHighLevelClient restHighLevelClient = cluster.getRestHighLevelClient(TEST_ROLE_USER)) {
+            SearchRequest searchRequest = new SearchRequest(UNION_TEST_INDEX_NAME);
+            SearchResponse searchResponse = restHighLevelClient.search(searchRequest, DEFAULT);
+
+            assertThat(searchResponse, isSuccessfulSearchResponse());
+            unionRoleHits = searchResponse.getHits();
+        }
+
+        // make sure total hits are the same
+        assertThat(adminHits.getTotalHits().value, equalTo(10L));
+        assertThat(unionRoleHits.getTotalHits().value, equalTo(adminHits.getTotalHits().value));
+
+        IntStream.range(0, 10).forEach((hitIndex) -> {
+            // make sure that the ids of the corresponding hits match
+            assertThat(unionRoleHits.getAt(hitIndex).getId(), equalTo(adminHits.getAt(hitIndex).getId()));
+
+            // make sure that each field value of the corresponding hits matches
+            Map<String, Object> adminHitKVMap = adminHits.getAt(hitIndex).getSourceAsMap();
+            Map<String, Object> unionRoleHitKVMap = unionRoleHits.getAt(hitIndex).getSourceAsMap();
+
+            assertThat(unionRoleHitKVMap.get("genre"), equalTo(adminHitKVMap.get("genre")));
+            assertThat(unionRoleHitKVMap.get("date"), equalTo(adminHitKVMap.get("date")));
+            assertThat(unionRoleHitKVMap.get("sensitive"), equalTo(adminHitKVMap.get("sensitive")));
+        });
     }
 }
