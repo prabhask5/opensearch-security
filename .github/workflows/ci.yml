@@ -19,7 +19,7 @@ jobs:
       separateTestsNames: ${{ steps.set-matrix.outputs.separateTestsNames }}
     steps:
     - name: Set up JDK for build and test
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: 17
@@ -45,7 +45,7 @@ jobs:
 
     steps:
     - name: Set up JDK for build and test
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: ${{ matrix.jdk }}
@@ -60,7 +60,7 @@ jobs:
         arguments: |
           ${{ matrix.gradle_task }} -Dbuild.snapshot=false
 
-    - uses: alehechka/upload-tartifact@v2
+    - uses: actions/upload-artifact@v4
       if: always()
       with:
         name: ${{ matrix.platform }}-JDK${{ matrix.jdk }}-${{ matrix.gradle_task }}-reports
@@ -68,25 +68,13 @@ jobs:
           ./build/reports/
 
   report-coverage:
-    needs:
-      - "test"
-      - "integration-tests"
+    needs: ["test", "integration-tests"]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v3
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
         with:
           path: downloaded-artifacts
-
-      - name: Display structure of downloaded files
-        run: ls -R
-        working-directory: downloaded-artifacts
-
-      - name: Extract downloaded artifacts
-        run: |
-          for archive in ./*/artifact.tar; do
-            (cd "$(dirname "$archive")" && tar -xvf artifact.tar)
-          done
-        working-directory: downloaded-artifacts
 
       - name: Display structure of downloaded files
         run: ls -R
@@ -101,7 +89,6 @@ jobs:
           with: |
             token: ${{ secrets.CODECOV_TOKEN }}
             fail_ci_if_error: true
-            directory: downloaded-artifacts
             verbose: true
 
 
@@ -111,12 +98,12 @@ jobs:
       fail-fast: false
       matrix:
         jdk: [11, 17, 21]
-        platform: [ubuntu-latest] # Removed windows https://github.com/opensearch-project/security/issues/3423
+        platform: [ubuntu-latest, windows-latest]
     runs-on: ${{ matrix.platform }}
 
     steps:
     - name: Set up JDK for build and test
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: ${{ matrix.jdk }}
@@ -151,7 +138,7 @@ jobs:
 
     steps:
     - name: Set up JDK for build and test
-      uses: actions/setup-java@v3
+      uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: ${{ matrix.jdk }}
@@ -169,7 +156,7 @@ jobs:
   backward-compatibility-build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/setup-java@v3
+      - uses: actions/setup-java@v4
         with:
           distribution: temurin # Temurin is a distribution of adoptium
           java-version: 17
@@ -193,7 +180,7 @@ jobs:
     runs-on: ${{ matrix.platform }}
 
     steps:
-    - uses: actions/setup-java@v3
+    - uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: ${{ matrix.jdk }}
@@ -214,22 +201,22 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
-    - uses: actions/setup-java@v3
+    - uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: 11
-    - uses: github/codeql-action/init@v2
+    - uses: github/codeql-action/init@v3
       with:
         languages: java
     - run: ./gradlew clean assemble
-    - uses: github/codeql-action/analyze@v2
+    - uses: github/codeql-action/analyze@v3
 
   build-artifact-names:
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v4
 
-    - uses: actions/setup-java@v3
+    - uses: actions/setup-java@v4
       with:
         distribution: temurin # Temurin is a distribution of adoptium
         java-version: 11

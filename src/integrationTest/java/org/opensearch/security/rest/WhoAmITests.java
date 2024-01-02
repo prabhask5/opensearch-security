@@ -22,7 +22,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import com.carrotsearch.randomizedtesting.annotations.ThreadLeakScope;
-import org.apache.hc.core5.http.HttpStatus;
+import org.apache.http.HttpStatus;
 import org.junit.ClassRule;
 import org.junit.Rule;
 import org.junit.Test;
@@ -172,7 +172,7 @@ public class WhoAmITests {
             assertThat(client.get("_cat/indices").getStatusCode(), equalTo(HttpStatus.SC_OK));
 
             // transport layer audit messages
-            auditLogsRule.assertExactly(2, grantedPrivilege(AUDIT_LOG_VERIFIER, "GetSettingsRequest"));
+            auditLogsRule.assertExactly(1, grantedPrivilege(AUDIT_LOG_VERIFIER, "GetSettingsRequest"));
 
             List<AuditMessage> grantedPrivilegesMessages = auditLogsRule.getCurrentTestAuditMessages()
                 .stream()
